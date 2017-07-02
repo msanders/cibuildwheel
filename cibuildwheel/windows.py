@@ -1,12 +1,12 @@
 from __future__ import print_function
-import os, tempfile, subprocess, sys
+import os, tempfile, subprocess, sys, re
 try:
     from urllib2 import urlopen
 except ImportError:
     from urllib.request import urlopen
 from collections import namedtuple
 
-from .util import prepare_command
+from .util import prepare_command, filter_wheels_cmd
 
 
 def build(project_dir, package_name, output_dir, test_command, test_requires, before_build, skip):
@@ -21,7 +21,7 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
         # print the command executing for the logs
         print('+ ' + ' '.join(args))
         args = ['cmd', '/E:ON', '/V:ON', '/C', run_with_env] + args
-        return subprocess.check_call(' '.join(args), env=env, cwd=cwd)
+        return subprocess.check_output(' '.join(args), env=env, cwd=cwd)
 
     PythonConfiguration = namedtuple('PythonConfiguration', ['version', 'arch', 'identifier', 'path'])
     python_configurations = [
@@ -66,16 +66,16 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             before_build_prepared = prepare_command(before_build, python='python', pip='pip')
             shell([before_build_prepared], env=env)
 
-        # install the package first to take care of dependencies
-        shell(['pip', 'install', project_dir], env=env)
-
         # build the wheel
         shell(['pip', 'wheel', project_dir, '-w', output_dir, '--no-deps'], env=env)
 
+        # Grab the built wheel for this platform
+        # Note: filter wheels *must* be run from inside the build environment
+        stdout = shell(['python', '-c', '"'+filter_wheels_cmd+'"', output_dir + '\*.whl'], env=env)
+        wheels = re.findall(output_dir + r'\\[^\s*]+\.whl', stdout, re.MULTILINE)
+
         # install the wheel
-        shell(['pip', 'install', package_name, '--upgrade',
-               '--force-reinstall', '--no-deps', '--no-index', '-f',
-               output_dir], env=env)
+        shell(['pip', 'install'] + wheels, env=env)
 
         # test the wheel
         if test_requires:

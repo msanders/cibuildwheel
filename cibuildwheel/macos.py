@@ -7,7 +7,7 @@ try:
 except ImportError:
     from pipes import quote as shlex_quote
 
-from .util import prepare_command
+from .util import prepare_command, filter_wheels_cmd
 
 
 def build(project_dir, package_name, output_dir, test_command, test_requires, before_build, skip):
@@ -22,7 +22,7 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
     def shell(args, env=None, cwd=None):
         # print the command executing for the logs
         print('+ ' + ' '.join(shlex_quote(a) for a in args))
-        return subprocess.check_call(args, env=env, cwd=cwd)
+        return subprocess.check_output(args, env=env, cwd=cwd)
 
     for config in python_configurations:
         if skip(config.identifier):
@@ -58,14 +58,11 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             before_build_prepared = prepare_command(before_build, python=python, pip=pip)
             shell(shlex.split(before_build_prepared), env=env)
 
-        # install the package first to take care of dependencies
-        shell([pip, 'install', project_dir], env=env)
-
         # build the wheel to temp dir
         temp_wheel_dir = '/tmp/tmpwheel%s' % config.version
         shell([pip, 'wheel', project_dir, '-w', temp_wheel_dir, '--no-deps'], env=env)
-        temp_wheel = glob(temp_wheel_dir+'/*.whl')[0]
 
+        temp_wheel = glob(temp_wheel_dir+'/*.whl')[0]
         if temp_wheel.endswith('none-any.whl'):
             # pure python wheel - just copy to output_dir
             shell(['cp', temp_wheel, output_dir], env=env)
@@ -75,9 +72,12 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             # rebuild the wheel with shared libraries included and place in output dir
             shell(['delocate-wheel', '-w', output_dir, temp_wheel], env=env)
 
-        # now install the package from the generated wheel
-        shell([pip, 'install', package_name, '--upgrade', '--force-reinstall',
-               '--no-deps', '--no-index', '--find-links', output_dir], env=env)
+        # Grab the built wheel for this platform
+        # Note: filter wheels *must* be run from inside the build environment
+        wheels = shell([python, '-c', filter_wheels_cmd, output_dir + '/*.whl'], env=env).split()
+
+        # install the wheel
+        shell([pip, 'install'] + wheels, env=env)
 
         # test the wheel
         if test_requires:
