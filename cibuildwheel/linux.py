@@ -74,7 +74,7 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             # Install packages and test
             for PYBIN in {pybin_paths}; do
                 # Install the wheel we just built
-                "$PYBIN/pip" install $("$PYBIN/python" -c "{filter_wheels}" /tmp/linux_wheels/*.whl)
+                "$PYBIN/pip" install $("$PYBIN/python" -c "{filter_wheels}" /output/*.whl)
 
                 # Install any requirements to run the tests
                 if [ ! -z "{test_requires}" ]; then
