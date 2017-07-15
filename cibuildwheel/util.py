@@ -1,11 +1,5 @@
 from fnmatch import fnmatch
 
-filter_wheels_cmd = '''\
-import sys, glob, itertools, pip; \
-sys.stdout.write(\
-' '.join(f for f in itertools.chain(*map(glob.iglob, sys.argv[1:])) \
-if pip.wheel.Wheel(f).supported()))\
-'''
 
 def prepare_command(command, python, pip):
     '''

@@ -1,12 +1,13 @@
 from __future__ import print_function
-import os, tempfile, subprocess, sys, re
+import os, tempfile, subprocess, sys, shutil
 try:
     from urllib2 import urlopen
 except ImportError:
     from urllib.request import urlopen
 from collections import namedtuple
+from glob import glob
 
-from .util import prepare_command, filter_wheels_cmd
+from .util import prepare_command
 
 
 def build(project_dir, package_name, output_dir, test_command, test_requires, before_build, skip):
@@ -37,6 +38,7 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
         PythonConfiguration(version='3.6.x', arch="64", identifier='cp36-win_amd64', path='C:\Python36-x64'),
     ]
 
+    temp_wheel_dir = tempfile.mkdtemp(prefix='tmpwheel')
     for config in python_configurations:
         if skip(config.identifier):
             print('cibuildwheel: Skipping build %s' % config.identifier, file=sys.stderr)
@@ -67,15 +69,11 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             shell([before_build_prepared], env=env)
 
         # build the wheel
-        shell(['pip', 'wheel', project_dir, '-w', output_dir, '--no-deps'], env=env)
-
-        # Grab the built wheel for this platform
-        # Note: filter wheels *must* be run from inside the build environment
-        stdout = shell(['python', '-c', '"'+filter_wheels_cmd+'"', output_dir + '\*.whl'], env=env)
-        wheels = re.findall(output_dir + r'\\[^\s*]+\.whl', stdout, re.MULTILINE)
+        shell(['pip', 'wheel', project_dir, '-w', temp_wheel_dir, '--no-deps'], env=env)
 
         # install the wheel
-        shell(['pip', 'install'] + wheels, env=env)
+        temp_wheel = glob(temp_wheel_dir+'/*.whl')[0]
+        shell(['pip', 'install', temp_wheel], env=env)
 
         # test the wheel
         if test_requires:
@@ -87,3 +85,8 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             abs_project_dir = os.path.abspath(project_dir)
             test_command_absolute = test_command.format(project=abs_project_dir)
             shell([test_command_absolute], cwd='c:\\', env=env)
+
+        # we're all done here; move it to output
+        # ...but remove the temp wheel to avoid problems with the remaining builds
+        shutil.copy(temp_wheel, output_dir)
+        os.remove(temp_wheel)

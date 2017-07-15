@@ -1,7 +1,7 @@
 from __future__ import print_function
 import os, subprocess, sys
 from collections import namedtuple
-from .util import prepare_command, filter_wheels_cmd
+from .util import prepare_command
 
 try:
     from shlex import quote as shlex_quote
@@ -53,28 +53,29 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             set -o errexit
             set -o xtrace
             cd /project
+            mkdir /tmp/linux_wheels{platform}
 
             for PYBIN in {pybin_paths}; do
                 if [ ! -z {before_build} ]; then
                     PATH=$PYBIN:$PATH sh -c {before_build}
                 fi
 
+                # Build that wheel
                 "$PYBIN/pip" wheel . -w /tmp/linux_wheels --no-deps
-            done
 
-            for whl in /tmp/linux_wheels/*.whl; do
+                # Delocate the wheel
+                # NOTE: 'whl' here is a bash array of glob matches; "$whl" returns the first element
+                whl=(/tmp/linux_wheels/*.whl)
                 if [[ "$whl" == *none-any.whl ]]; then
                     # pure python wheel - just copy to the output
-                    cp "$whl" /output
+                    mv "$whl" /tmp/linux_wheels{platform}
                 else
-                    auditwheel repair "$whl" -w /output
+                    auditwheel repair "$whl" -w /tmp/linux_wheels{platform}
+                    rm "$whl"
                 fi
-            done
 
-            # Install packages and test
-            for PYBIN in {pybin_paths}; do
                 # Install the wheel we just built
-                "$PYBIN/pip" install $("$PYBIN/python" -c "{filter_wheels}" /output/*.whl)
+                "$PYBIN/pip" install /tmp/linux_wheels{platform}/*.whl
 
                 # Install any requirements to run the tests
                 if [ ! -z "{test_requires}" ]; then
@@ -87,9 +88,12 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
                     PATH=$PYBIN:$PATH sh -c {test_command}
                     popd
                 fi
+
+                # we're all done here; move it to output
+                mv /tmp/linux_wheels{platform}/*.whl /output
             done
         '''.format(
-            filter_wheels=filter_wheels_cmd,
+            platform=platform_tag,
             package_name=package_name,
             pybin_paths=' '.join(c.path+'/bin' for c in platform_configs),
             test_requires=' '.join(test_requires),
@@ -110,7 +114,7 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
                 '-v', '%s:/output' % os.path.abspath(output_dir),
                 docker_image,
                 '/bin/bash'],
-            stdin=subprocess.PIPE, universal_newlines=True)
+                stdin=subprocess.PIPE, universal_newlines=True)
 
         try:
             docker_process.communicate(bash_script)
