@@ -38,11 +38,18 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
         PythonConfiguration(version='3.6.x', arch="64", identifier='cp36-win_amd64', path='C:\Python36-x64'),
     ]
 
-    temp_wheel_dir = tempfile.mkdtemp(prefix='tmpwheel')
+    temp_dir = tempfile.mkdtemp(prefix='cibuildwheel')
+    built_wheel_dir = os.path.join(temp_dir, 'built_wheel')
+
     for config in python_configurations:
         if skip(config.identifier):
             print('cibuildwheel: Skipping build %s' % config.identifier, file=sys.stderr)
             continue
+
+        # setup dirs
+        if os.path.exists(built_wheel_dir):
+            shutil.rmtree(built_wheel_dir)
+        os.makedirs(built_wheel_dir)
 
         env = os.environ.copy()
         # set up environment variables for run_with_env
@@ -69,11 +76,11 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             shell([before_build_prepared], env=env)
 
         # build the wheel
-        shell(['pip', 'wheel', project_dir, '-w', temp_wheel_dir, '--no-deps'], env=env)
+        shell(['pip', 'wheel', project_dir, '-w', built_wheel_dir, '--no-deps'], env=env)
 
         # install the wheel
-        temp_wheel = glob(temp_wheel_dir+'/*.whl')[0]
-        shell(['pip', 'install', temp_wheel], env=env)
+        built_wheel = glob(built_wheel_dir+'/*.whl')[0]
+        shell(['pip', 'install', built_wheel], env=env)
 
         # test the wheel
         if test_requires:
@@ -87,6 +94,4 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             shell([test_command_absolute], cwd='c:\\', env=env)
 
         # we're all done here; move it to output
-        # ...but remove the temp wheel to avoid problems with the remaining builds
-        shutil.copy(temp_wheel, output_dir)
-        os.remove(temp_wheel)
+        shutil.move(built_wheel, output_dir)

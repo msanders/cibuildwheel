@@ -53,29 +53,35 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
             set -o errexit
             set -o xtrace
             cd /project
-            mkdir /tmp/linux_wheels{platform}
 
             for PYBIN in {pybin_paths}; do
+                # Setup
+                rm -rf /tmp/built_wheel
+                rm -rf /tmp/delocated_wheel
+                mkdir /tmp/built_wheel
+                mkdir /tmp/delocated_wheel
+
                 if [ ! -z {before_build} ]; then
                     PATH=$PYBIN:$PATH sh -c {before_build}
                 fi
 
                 # Build that wheel
-                "$PYBIN/pip" wheel . -w /tmp/linux_wheels --no-deps
+                "$PYBIN/pip" wheel . -w /tmp/built_wheel --no-deps
+                built_wheel=(/tmp/built_wheel/*.whl)
 
                 # Delocate the wheel
-                # NOTE: 'whl' here is a bash array of glob matches; "$whl" returns the first element
-                whl=(/tmp/linux_wheels/*.whl)
-                if [[ "$whl" == *none-any.whl ]]; then
-                    # pure python wheel - just copy to the output
-                    mv "$whl" /tmp/linux_wheels{platform}
+                # NOTE: 'built_wheel' here is a bash array of glob matches; "$built_wheel" returns
+                # the first element
+                if [[ "$built_wheel" == *none-any.whl ]]; then
+                    # pure python wheel - just copy
+                    cp "$built_wheel" /tmp/delocated_wheel
                 else
-                    auditwheel repair "$whl" -w /tmp/linux_wheels{platform}
-                    rm "$whl"
+                    auditwheel repair "$built_wheel" -w /tmp/delocated_wheel
                 fi
+                delocated_wheel=(/tmp/delocated_wheel/*.whl)
 
                 # Install the wheel we just built
-                "$PYBIN/pip" install /tmp/linux_wheels{platform}/*.whl
+                "$PYBIN/pip" install "$delocated_wheel"
 
                 # Install any requirements to run the tests
                 if [ ! -z "{test_requires}" ]; then
@@ -90,7 +96,7 @@ def build(project_dir, package_name, output_dir, test_command, test_requires, be
                 fi
 
                 # we're all done here; move it to output
-                mv /tmp/linux_wheels{platform}/*.whl /output
+                mv "$delocated_wheel" /output
             done
         '''.format(
             platform=platform_tag,
